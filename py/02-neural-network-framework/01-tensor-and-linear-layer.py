@@ -7,7 +7,7 @@ class Tensor:
         self.data = np.array(data)
 
     def shape(self, axis):
-        return self.data.shape[axis] if axis else self.data.shape
+        return self.data.shape if axis is None else self.data.shape[axis]
 
 
 class Linear:
@@ -15,6 +15,7 @@ class Linear:
     def __init__(self, in_features, out_features):
         self.in_features = in_features
         self.out_features = out_features
+
         self.weight = Tensor(np.ones((out_features, in_features)))
         self.bias = Tensor(np.zeros(out_features))
 
@@ -36,12 +37,17 @@ class Dataset:
     def __init__(self):
         self.feature = Tensor([28.1, 58.0])
         self.label = Tensor([165])
-        self.shape = self.feature.shape(-1), self.label.shape(-1)
+
+    def feature_size(self):
+        return self.feature.shape(-1)
+
+    def label_size(self):
+        return self.label.shape(-1)
 
 
 dataset = Dataset()
 
-model = Linear(dataset.shape[0], dataset.shape[1])
+model = Linear(dataset.feature_size(), dataset.label_size())
 
 loss = MSELoss()
 

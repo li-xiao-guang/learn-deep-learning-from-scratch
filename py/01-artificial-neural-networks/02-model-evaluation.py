@@ -15,10 +15,8 @@ feature = np.array([28.1, 58.0])
 label = np.array([165])
 
 # model
-feature_shape = feature.shape[-1], label.shape[-1]
-
-weight = np.ones((feature_shape[1], feature_shape[0]))
-bias = np.zeros(feature_shape[1])
+weight = np.ones((label.shape[-1], feature.shape[-1]))
+bias = np.zeros(label.shape[-1])
 
 # prediction
 prediction = forward(feature, weight, bias)

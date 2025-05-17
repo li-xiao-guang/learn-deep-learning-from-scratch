@@ -51,14 +51,11 @@ labels = np.array([[165],
                    [155]])
 
 # model
-feature_shape = features.shape[-1], labels.shape[-1]
-hidden_feature_size = 4
+hidden_weight = np.random.rand(4, features.shape[-1]) / features.shape[-1]
+hidden_bias = np.zeros(4)
 
-hidden_weight = np.random.rand(hidden_feature_size, feature_shape[0]) / feature_shape[0]
-hidden_bias = np.zeros(hidden_feature_size)
-
-weight = np.random.rand(feature_shape[1], hidden_feature_size) / hidden_feature_size
-bias = np.zeros(feature_shape[1])
+weight = np.random.rand(labels.shape[-1], 4) / 4
+bias = np.zeros(labels.shape[-1])
 
 # epoch
 for epoch in range(EPOCHES):
@@ -81,6 +78,7 @@ for epoch in range(EPOCHES):
         # backpropagation
         delta = gradient(prediction, label)
         hidden_delta = relu_backward(hidden, gradient_backward(delta, weight))
+
         (weight, bias) = backward(hidden, delta, weight, bias)
         (hidden_weight, hidden_bias) = backward(feature, hidden_delta, hidden_weight, hidden_bias)
         print(f"New weight: {weight}")

@@ -19,7 +19,7 @@ class Tensor:
         self.parents = set()
 
     def shape(self, axis):
-        return self.data.shape[axis] if axis else self.data.shape
+        return self.data.shape if axis is None else self.data.shape[axis]
 
     def backward(self, grad=None):
         if grad is None:
@@ -108,7 +108,6 @@ class Dataset:
                        [210],
                        [70],
                        [155]]
-        self.shape = len(self.features[0]), len(self.labels[0])
 
     def size(self):
         return len(self.features)
@@ -119,10 +118,16 @@ class Dataset:
     def label(self, index):
         return Tensor(self.labels[index: index + BATCH_SIZE])
 
+    def feature_size(self):
+        return self.feature(0).shape(-1)
+
+    def label_size(self):
+        return self.label(0).shape(-1)
+
 
 dataset = Dataset()
 
-model = Linear(dataset.shape[0], dataset.shape[1])
+model = Linear(dataset.feature_size(), dataset.label_size())
 
 loss = MSELoss()
 optimizer = SGD(model.parameters(), lr=LEARNING_RATE)

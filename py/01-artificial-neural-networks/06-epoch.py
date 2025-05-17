@@ -36,10 +36,8 @@ labels = np.array([[165],
                    [155]])
 
 # model
-feature_shape = features.shape[-1], labels.shape[-1]
-
-weight = np.ones((feature_shape[1], feature_shape[0]))
-bias = np.zeros(feature_shape[1])
+weight = np.ones((labels.shape[-1], features.shape[-1]))
+bias = np.zeros(labels.shape[-1])
 
 # epoch
 for epoch in range(EPOCHES):
