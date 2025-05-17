@@ -37,14 +37,15 @@ labels = np.array([[165],
                    [155]])
 
 # model
-in_feature_size = features.shape[-1]
-out_feature_size = labels.shape[-1]
-weight = np.ones((out_feature_size, in_feature_size))
-bias = np.zeros(out_feature_size)
+feature_shape = features.shape[-1], labels.shape[-1]
+
+weight = np.ones((feature_shape[1], feature_shape[0]))
+bias = np.zeros(feature_shape[1])
 
 # epoch
 for epoch in range(EPOCHES):
     print(f"Epoch: {epoch}")
+
     # iteration
     for i in range(0, len(features), BATCH_SIZE):
         feature = features[i: i + BATCH_SIZE]

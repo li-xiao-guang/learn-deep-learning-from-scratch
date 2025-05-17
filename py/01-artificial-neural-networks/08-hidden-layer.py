@@ -43,17 +43,19 @@ labels = np.array([[165],
                    [155]])
 
 # model
-in_feature_size = features.shape[-1]
-out_feature_size = labels.shape[-1]
+feature_shape = features.shape[-1], labels.shape[-1]
 hidden_feature_size = 4
-hidden_weight = np.random.rand(hidden_feature_size, in_feature_size) / in_feature_size
+
+hidden_weight = np.random.rand(hidden_feature_size, feature_shape[0]) / feature_shape[0]
 hidden_bias = np.zeros(hidden_feature_size)
-weight = np.random.rand(out_feature_size, hidden_feature_size) / hidden_feature_size
-bias = np.zeros(out_feature_size)
+
+weight = np.random.rand(feature_shape[1], hidden_feature_size) / hidden_feature_size
+bias = np.zeros(feature_shape[1])
 
 # epoch
 for epoch in range(EPOCHES):
     print(f"Epoch: {epoch}")
+
     # iteration
     for i in range(0, len(features), BATCH_SIZE):
         feature = features[i: i + BATCH_SIZE]
@@ -70,11 +72,10 @@ for epoch in range(EPOCHES):
 
         # backpropagation
         delta = gradient(prediction, label)
+        hidden_delta = gradient_backward(delta, weight)
         (weight, bias) = backward(hidden, delta, weight, bias)
+        (hidden_weight, hidden_bias) = backward(feature, hidden_delta, hidden_weight, hidden_bias)
         print(f"New weight: {weight}")
         print(f"New bias: {bias}")
-
-        hidden_delta = gradient_backward(delta, weight)
-        (hidden_weight, hidden_bias) = backward(feature, hidden_delta, hidden_weight, hidden_bias)
         print(f"New hidden weight: {hidden_weight}")
         print(f"New hidden bias: {hidden_bias}")
