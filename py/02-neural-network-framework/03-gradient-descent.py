@@ -1,7 +1,5 @@
 import numpy as np
 
-LEARNING_RATE = 0.00001
-
 
 def merge_grad(old, new):
     return new if old is None else (old + new)
@@ -122,6 +120,8 @@ class Dataset:
     def label_size(self):
         return self.label(0).shape(-1)
 
+
+LEARNING_RATE = 0.00001
 
 dataset = Dataset()
 

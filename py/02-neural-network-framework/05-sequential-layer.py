@@ -2,12 +2,6 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-np.random.seed(99)
-
-LEARNING_RATE = 0.00001
-EPOCHES = 1000
-BATCH_SIZE = 2
-
 
 def merge_grad(old, new):
     return new if old is None else (old + new)
@@ -157,6 +151,12 @@ class Dataset:
     def label_size(self):
         return self.label(0).shape(-1)
 
+
+np.random.seed(99)
+
+LEARNING_RATE = 0.00001
+EPOCHES = 1000
+BATCH_SIZE = 2
 
 dataset = Dataset()
 
