@@ -50,14 +50,15 @@ for epoch in range(EPOCHES):
 
         # prediction
         prediction = forward(feature, weight, bias)
-        print(f'Prediction: {prediction}')
 
         # evaluation
         error = mse_loss(prediction, label)
-        print(f'Error: {error}')
 
         # backpropagation
         delta = gradient(prediction, label)
         (weight, bias) = backward(feature, delta, weight, bias)
-        print(f"New weight: {weight}")
-        print(f"New bias: {bias}")
+
+    print(f'Prediction: {prediction}')
+    print(f'Error: {error}')
+    print(f"New weight: {weight}")
+    print(f"New bias: {bias}")

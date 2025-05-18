@@ -14,9 +14,6 @@ class Tensor:
         self.backward_fn = lambda: None
         self.parents = set()
 
-    def shape(self, axis):
-        return self.data.shape if axis is None else self.data.shape[axis]
-
     def backward(self, grad=None):
         if grad is None:
             grad = np.ones_like(self.data)
@@ -105,20 +102,20 @@ class Dataset:
                        [70],
                        [155]]
 
-    def size(self):
+    def count(self):
         return len(self.features)
 
     def feature(self, index):
         return Tensor(self.features[index])
 
+    def feature_size(self):
+        return self.feature(0).data.shape[-1]
+
     def label(self, index):
         return Tensor(self.labels[index])
 
-    def feature_size(self):
-        return self.feature(0).shape(-1)
-
     def label_size(self):
-        return self.label(0).shape(-1)
+        return self.label(0).data.shape[-1]
 
 
 LEARNING_RATE = 0.00001
@@ -130,7 +127,7 @@ model = Linear(dataset.feature_size(), dataset.label_size())
 loss = MSELoss()
 optimizer = SGD(model.parameters(), lr=LEARNING_RATE)
 
-for i in range(dataset.size()):
+for i in range(dataset.count()):
     feature = dataset.feature(i)
     label = dataset.label(i)
 

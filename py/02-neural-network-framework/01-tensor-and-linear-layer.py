@@ -6,9 +6,6 @@ class Tensor:
     def __init__(self, data):
         self.data = np.array(data)
 
-    def shape(self, axis):
-        return self.data.shape if axis is None else self.data.shape[axis]
-
 
 class Linear:
 
@@ -39,10 +36,10 @@ class Dataset:
         self.label = Tensor([165])
 
     def feature_size(self):
-        return self.feature.shape(-1)
+        return self.feature.data.shape[-1]
 
     def label_size(self):
-        return self.label.shape(-1)
+        return self.label.data.shape[-1]
 
 
 dataset = Dataset()

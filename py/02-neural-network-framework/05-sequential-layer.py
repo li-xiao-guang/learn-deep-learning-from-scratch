@@ -16,9 +16,6 @@ class Tensor:
         self.backward_fn = lambda: None
         self.parents = set()
 
-    def shape(self, axis):
-        return self.data.shape if axis is None else self.data.shape[axis]
-
     def backward(self, grad=None):
         if grad is None:
             grad = np.ones_like(self.data)
@@ -124,7 +121,9 @@ class SGD:
 
 class Dataset:
 
-    def __init__(self):
+    def __init__(self, batch_size=1):
+        self.batch_size = batch_size
+
         self.features = [[28.1, 58.0],
                          [22.5, 72.0],
                          [31.4, 45.0],
@@ -136,29 +135,29 @@ class Dataset:
                        [70],
                        [155]]
 
-    def size(self):
+    def count(self):
         return len(self.features)
 
     def feature(self, index):
-        return Tensor(self.features[index: index + BATCH_SIZE])
-
-    def label(self, index):
-        return Tensor(self.labels[index: index + BATCH_SIZE])
+        return Tensor(self.features[index: index + self.batch_size])
 
     def feature_size(self):
-        return self.feature(0).shape(-1)
+        return self.feature(0).data.shape[-1]
+
+    def label(self, index):
+        return Tensor(self.labels[index: index + self.batch_size])
 
     def label_size(self):
-        return self.label(0).shape(-1)
+        return self.label(0).data.shape[-1]
 
 
 np.random.seed(99)
 
 LEARNING_RATE = 0.00001
 EPOCHES = 1000
-BATCH_SIZE = 2
+BATCHES = 2
 
-dataset = Dataset()
+dataset = Dataset(BATCHES)
 
 hidden = Linear(dataset.feature_size(), 4)
 output = Linear(4, dataset.label_size())
@@ -170,20 +169,20 @@ optimizer = SGD(model.parameters(), lr=LEARNING_RATE)
 for epoch in range(EPOCHES):
     print(f"Epoch: {epoch}")
 
-    for i in range(0, dataset.size(), BATCH_SIZE):
+    for i in range(0, dataset.count(), BATCHES):
         feature = dataset.feature(i)
         label = dataset.label(i)
 
         prediction = model(feature)
-        print(f'Prediction: {prediction.data}')
-
         error = loss(prediction, label)
-        print(f'Error: {error.data.item()}')
 
         optimizer.zero_grad()
         error.backward()
         optimizer.step()
-        print(f"New weight: {output.weight.data}")
-        print(f"New bias: {output.bias.data}")
-        print(f"New hidden weight: {hidden.weight.data}")
-        print(f"New hidden bias: {hidden.bias.data}")
+
+    print(f'Prediction: {prediction.data}')
+    print(f'Error: {error.data.item()}')
+    print(f"New weight: {output.weight.data}")
+    print(f"New bias: {output.bias.data}")
+    print(f"New hidden weight: {hidden.weight.data}")
+    print(f"New hidden bias: {hidden.bias.data}")

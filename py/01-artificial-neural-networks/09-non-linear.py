@@ -4,7 +4,7 @@ np.random.seed(99)
 
 LEARNING_RATE = 0.00001
 EPOCHES = 1000
-BATCH_SIZE = 2
+BATCHES = 2
 
 
 # neuron definition
@@ -35,7 +35,7 @@ def relu(x):
 
 
 def relu_backward(y, d):
-    return (y > 0).astype(float) * d
+    return (y > 0) * d
 
 
 # dataset
@@ -62,18 +62,16 @@ for epoch in range(EPOCHES):
     print(f"Epoch: {epoch}")
 
     # iteration
-    for i in range(0, len(features), BATCH_SIZE):
-        feature = features[i: i + BATCH_SIZE]
-        label = labels[i: i + BATCH_SIZE]
+    for i in range(0, len(features), BATCHES):
+        feature = features[i: i + BATCHES]
+        label = labels[i: i + BATCHES]
 
         # prediction
         hidden = relu(forward(feature, hidden_weight, hidden_bias))
         prediction = forward(hidden, weight, bias)
-        print(f'Prediction: {prediction}')
 
         # evaluation
         error = mse_loss(prediction, label)
-        print(f'Error: {error}')
 
         # backpropagation
         delta = gradient(prediction, label)
@@ -81,7 +79,10 @@ for epoch in range(EPOCHES):
 
         (weight, bias) = backward(hidden, delta, weight, bias)
         (hidden_weight, hidden_bias) = backward(feature, hidden_delta, hidden_weight, hidden_bias)
-        print(f"New weight: {weight}")
-        print(f"New bias: {bias}")
-        print(f"New hidden weight: {hidden_weight}")
-        print(f"New hidden bias: {hidden_bias}")
+
+    print(f'Prediction: {prediction}')
+    print(f'Error: {error}')
+    print(f"New weight: {weight}")
+    print(f"New bias: {bias}")
+    print(f"New hidden weight: {hidden_weight}")
+    print(f"New hidden bias: {hidden_bias}")
