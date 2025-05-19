@@ -3,10 +3,6 @@ from abc import ABC, abstractmethod
 import numpy as np
 
 
-def merge_grad(old, new):
-    return new if old is None else (old + new)
-
-
 class Tensor:
 
     def __init__(self, data, requires_grad=True):
@@ -56,14 +52,11 @@ class Linear(Layer):
 
         def backward_fn():
             if self.weight.requires_grad:
-                grad = p.grad.T.dot(x.data)
-                self.weight.grad = merge_grad(self.weight.grad, grad)
+                self.weight.grad = p.grad.T.dot(x.data)
             if self.bias.requires_grad:
-                grad = np.sum(p.grad, axis=0)
-                self.bias.grad = merge_grad(self.bias.grad, grad)
+                self.bias.grad = np.sum(p.grad, axis=0)
             if x.requires_grad:
-                grad = p.grad.dot(self.weight.data)
-                x.grad = merge_grad(x.grad, grad)
+                x.grad = p.grad.dot(self.weight.data)
 
         p.backward_fn = backward_fn
         p.parents = {self.weight, self.bias, x}
@@ -80,8 +73,7 @@ class Flatten(Layer):
 
         def backward_fn():
             if x.requires_grad:
-                grad = p.grad.reshape(x.data.shape)
-                x.grad = merge_grad(x.grad, grad)
+                x.grad = p.grad.reshape(x.data.shape)
 
         p.backward_fn = backward_fn
         p.parents = {x}
@@ -110,8 +102,7 @@ class ReLU(Layer):
 
         def backward_fn():
             if x.requires_grad:
-                grad = (p.data > 0) * p.grad
-                x.grad = merge_grad(x.grad, grad)
+                x.grad = (p.data > 0) * p.grad
 
         p.backward_fn = backward_fn
         p.parents = {x}
@@ -159,6 +150,7 @@ class Dataset:
                 x, y = f['x_test'][:size], f['y_test'][:size]
             else:
                 x, y = f['x_train'][:size], f['y_train'][:size]
+
         self.features, self.labels = self.normalize(x, y)
 
     @staticmethod

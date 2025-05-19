@@ -1,4 +1,7 @@
+import csv
+import re
 from abc import ABC, abstractmethod
+from collections import Counter
 
 import numpy as np
 
@@ -75,116 +78,43 @@ class Linear(Layer):
         return [self.weight, self.bias]
 
 
-class Convolution2D(Layer):
+class Embedding(Layer):
 
-    def __init__(self, in_channels, out_channels, kernel_size):
+    def __init__(self, vocabulary_size, embedding_size):
         super().__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.kernel_size = kernel_size
-        in_size = kernel_size ** 2 * in_channels
-        self.weight = Tensor(np.random.rand(out_channels, in_size) / in_size)
-        self.bias = Tensor(np.zeros(out_channels))
+        self.vocabulary_size = vocabulary_size
+        self.embedding_size = embedding_size
+        self.weight = Tensor(np.random.rand(embedding_size, vocabulary_size) / vocabulary_size)
 
     def forward(self, x: Tensor):
-        batch, channel, row, column = x.data.shape
-        row = row - self.kernel_size + 1
-        column = column - self.kernel_size + 1
-
-        patches = []
-        for b in range(batch):
-            for c in range(channel):
-                for r in range(row):
-                    for l in range(column):
-                        patch = x.data[b,
-                                c:c + self.in_channels,
-                                r:r + self.kernel_size,
-                                l:l + self.kernel_size]
-                        patches.append(patch)
-        patches = np.array(patches).reshape(batch, channel, row, column, -1)
-
-        p = Tensor(patches.dot(self.weight.data.T) + self.bias.data)
+        p = Tensor(self.weight.data.T[x.data])
 
         def backward_fn():
             if self.weight.requires_grad:
-                self.weight.grad = p.grad.reshape(-1, self.out_channels).T.dot(
-                    (patches.reshape(-1, self.kernel_size ** 2)))
-            if self.bias.requires_grad:
-                self.bias.grad = np.sum(p.grad.reshape(-1, self.out_channels), axis=0)
+                if self.weight.grad is None:
+                    self.weight.grad = np.zeros_like(self.weight.data)
+                self.weight.grad.T[x.data] += p.grad
 
         p.backward_fn = backward_fn
-        p.parents = {self.weight, self.bias}
+        p.parents = {self.weight}
         return p
 
     def parameters(self):
         return [self.weight]
 
 
-class Pool2D(Layer):
+class Merge(Layer):
 
-    def __init__(self, kernel_size):
+    def __init__(self, axis=1):
         super().__init__()
-        self.kernel_size = kernel_size
+        self.axis = axis
 
     def forward(self, x: Tensor):
-        batch, channel, row, column, patch = x.data.shape
-        pooled_row = row // self.kernel_size
-        pooled_column = column // self.kernel_size
-
-        masks = np.zeros_like(x.data, dtype=bool)
-        pools = np.zeros((batch, channel, pooled_row, pooled_column, patch))
-        for r in range(pooled_row):
-            for l in range(pooled_column):
-                row_slice = slice(r * self.kernel_size, (r + 1) * self.kernel_size)
-                column_slice = slice(l * self.kernel_size, (l + 1) * self.kernel_size)
-                region = x.data[:, :, row_slice, column_slice, :]
-                max_region = region.max(axis=(2, 3), keepdims=True)
-                pools[:, :, r, l, :] = max_region.squeeze(axis=(2, 3))
-                mask = region == max_region
-                masks[:, :, row_slice, column_slice, :] += mask
-
-        p = Tensor(pools)
+        p = Tensor(np.sum(x.data, axis=self.axis))
 
         def backward_fn():
             if x.requires_grad:
-                x.grad = np.zeros_like(x.data)
-                x.grad[masks] = p.grad.repeat(self.kernel_size, axis=2).repeat(self.kernel_size, axis=3)[masks]
-
-        p.backward_fn = backward_fn
-        p.parents = {x}
-        return p
-
-
-class Flatten(Layer):
-
-    def forward(self, x: Tensor):
-        p = Tensor(np.array(x.data.reshape(x.data.shape[0], -1)))
-
-        def backward_fn():
-            if x.requires_grad:
-                x.grad = p.grad.reshape(x.data.shape)
-
-        p.backward_fn = backward_fn
-        p.parents = {x}
-        return p
-
-
-class Dropout(Layer):
-
-    def __init__(self, dropout_rate=0.3):
-        super().__init__()
-        self.dropout_rate = dropout_rate
-
-    def forward(self, x: Tensor):
-        if not self.training:
-            return x
-
-        mask = np.random.random(x.data.shape) > self.dropout_rate
-        p = Tensor(x.data * mask)
-
-        def backward_fn():
-            if x.requires_grad:
-                x.grad = p.grad * mask
+                x.grad = np.expand_dims(p.grad, axis=self.axis)
 
         p.backward_fn = backward_fn
         p.parents = {x}
@@ -289,6 +219,21 @@ class MSELoss:
         return mse
 
 
+class BCELoss:
+
+    def __call__(self, p: Tensor, y: Tensor):
+        clipped = np.clip(p.data, 1e-7, 1 - 1e-7)
+        bce = Tensor(-np.mean(y.data * np.log(clipped) + (1 - y.data) * np.log(1 - clipped)))
+
+        def backward_fn():
+            if p.requires_grad:
+                p.grad = (clipped - y.data) / (clipped * (1 - clipped) * len(p.data))
+
+        bce.backward_fn = backward_fn
+        bce.parents = {p}
+        return bce
+
+
 class SGD:
 
     def __init__(self, params, lr):
@@ -308,23 +253,41 @@ class SGD:
 
 class Dataset:
 
-    def __init__(self, test=False, size=2000, batch_size=1):
+    def __init__(self, test=False, size=-10, min_frequency=3, batch_size=1):
+        self.min_frequency = min_frequency
         self.batch_size = batch_size
 
-        with (np.load('mnist.npz', allow_pickle=True) as f):
-            if test:
-                x, y = f['x_test'][:size], f['y_test'][:size]
-            else:
-                x, y = f['x_train'][:size], f['y_train'][:size]
+        self.reviews = []
+        self.sentiments = []
+        with open('reviews.csv', 'r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            next(reader)
+            for _, row in enumerate(reader):
+                self.reviews.append(row[0])
+                self.sentiments.append(row[1])
 
-        self.features, self.labels = self.normalize(x, y)
+        split_reviews = []
+        for r in self.reviews:
+            split_reviews.append(self.clean_text(r.lower()).split())
+
+        counter = Counter([w for r in split_reviews for w in r])
+        self.vocabulary = set([w for w, c in counter.items() if c >= self.min_frequency])
+        self.word2index = {w: idx for idx, w in enumerate(self.vocabulary)}
+        self.index2word = {idx: w for idx, w in enumerate(self.vocabulary)}
+        self.tokens = [[self.word2index[w] for w in r if w in self.word2index] for r in split_reviews]
+
+        if test:
+            self.features = [list(set(i)) for i in self.tokens[size:]]
+            self.labels = [0 if i == "negative" else 1 for i in self.sentiments[size:]]
+        else:
+            self.features = [list(set(i)) for i in self.tokens[:size]]
+            self.labels = [0 if i == "negative" else 1 for i in self.sentiments[:size]]
 
     @staticmethod
-    def normalize(x, y):
-        inputs = np.expand_dims(x / 255, axis=1)
-        targets = np.zeros((len(y), 10))
-        targets[range(len(y)), y] = 1
-        return inputs, targets
+    def clean_text(text):
+        txt = re.sub(r'<[^>]+>', '', text)
+        txt = re.sub(r'[^a-zA-Z0-9\s]', '', txt)
+        return txt
 
     def count(self):
         return len(self.features)
@@ -332,46 +295,28 @@ class Dataset:
     def feature(self, index):
         return Tensor(self.features[index: index + self.batch_size])
 
-    def feature_channel(self):
-        return self.feature(0).data.shape[-3]
-
-    def feature_row(self):
-        return self.feature(0).data.shape[-2]
-
-    def feature_column(self):
-        return self.feature(0).data.shape[-1]
-
-    def feature_size(self):
-        return self.feature_channel() * self.feature_row() * self.feature_column()
-
     def label(self, index):
         return Tensor(self.labels[index: index + self.batch_size])
-
-    def label_size(self):
-        return self.label(0).data.shape[-1]
 
 
 np.random.seed(99)
 
 LEARNING_RATE = 0.1
-EPOCHES = 10
-BATCHES, CHANNELS, KERNELS, POOLS = (2, 16, 3, 2)
+EPOCHS = 10
+BATCHES = 1
 
 # training
 dataset = Dataset(batch_size=BATCHES)
 
-kernel = Convolution2D(dataset.feature_channel(), CHANNELS, KERNELS)
-pool = Pool2D(POOLS)
-convolved_row = dataset.feature_row() - KERNELS + 1
-convolved_column = dataset.feature_column() - KERNELS + 1
-hidden = Linear((convolved_row // POOLS) * (convolved_column // POOLS) * CHANNELS, 64)
-output = Linear(64, dataset.label_size())
-model = Sequential([kernel, pool, Flatten(), Dropout(), hidden, Tanh(), output, Softmax()])
+embedding = Embedding(len(dataset.vocabulary), 64)
+hidden = Linear(64, 16)
+output = Linear(16, 1)
+model = Sequential([embedding, Merge(), Tanh(), hidden, Tanh(), output, Sigmoid()])
 
-loss = MSELoss()
+loss = BCELoss()
 optimizer = SGD(model.parameters(), lr=LEARNING_RATE)
 
-for epoch in range(EPOCHES):
+for epoch in range(EPOCHS):
     print(f"Epoch: {epoch}")
 
     for i in range(0, dataset.count(), BATCHES):
@@ -393,9 +338,7 @@ for epoch in range(EPOCHES):
     print(f"New hidden bias: {hidden.bias.data}")
 
 # evaluation
-dataset = Dataset(True, 1000, batch_size=BATCHES)
-
-model.eval()
+dataset = Dataset(True, -10, batch_size=BATCHES)
 
 result = 0
 for i in range(0, dataset.count(), BATCHES):
@@ -403,8 +346,7 @@ for i in range(0, dataset.count(), BATCHES):
     label = dataset.label(i)
 
     prediction = model(feature)
-    for j in range(BATCHES):
-        if prediction.data[j].argmax() == label.data[j].argmax():
-            result += 1
+    if np.abs(prediction.data - label.data) < 0.5:
+        result += 1
 
 print(f'Result: {result} of {dataset.count()}')

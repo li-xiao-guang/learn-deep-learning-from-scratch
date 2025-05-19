@@ -1,10 +1,6 @@
 import numpy as np
 
 
-def merge_grad(old, new):
-    return new if old is None else (old + new)
-
-
 class Tensor:
 
     def __init__(self, data, requires_grad=True):
@@ -43,11 +39,9 @@ class Linear:
 
         def backward_fn():
             if self.weight.requires_grad:
-                grad = p.grad * x.data
-                self.weight.grad = merge_grad(self.weight.grad, grad)
+                self.weight.grad = p.grad * x.data
             if self.bias.requires_grad:
-                grad = np.sum(p.grad, axis=0)
-                self.bias.grad = merge_grad(self.bias.grad, grad)
+                self.bias.grad = np.sum(p.grad, axis=0)
 
         p.backward_fn = backward_fn
         p.parents = {self.weight, self.bias}

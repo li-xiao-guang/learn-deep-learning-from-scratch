@@ -3,10 +3,6 @@ from abc import ABC, abstractmethod
 import numpy as np
 
 
-def merge_grad(old, new):
-    return new if old is None else (old + new)
-
-
 class Tensor:
 
     def __init__(self, data, requires_grad=True):
@@ -65,14 +61,11 @@ class Linear(Layer):
 
         def backward_fn():
             if self.weight.requires_grad:
-                grad = p.grad.T.dot(x.data)
-                self.weight.grad = merge_grad(self.weight.grad, grad)
+                self.weight.grad = p.grad.T.dot(x.data)
             if self.bias.requires_grad:
-                grad = np.sum(p.grad, axis=0)
-                self.bias.grad = merge_grad(self.bias.grad, grad)
+                self.bias.grad = np.sum(p.grad, axis=0)
             if x.requires_grad:
-                grad = p.grad.dot(self.weight.data)
-                x.grad = merge_grad(x.grad, grad)
+                x.grad = p.grad.dot(self.weight.data)
 
         p.backward_fn = backward_fn
         p.parents = {self.weight, self.bias, x}
@@ -114,11 +107,10 @@ class Convolution2D(Layer):
 
         def backward_fn():
             if self.weight.requires_grad:
-                grad = p.grad.reshape(-1, self.out_channels).T.dot((patches.reshape(-1, self.kernel_size ** 2)))
-                self.weight.grad = merge_grad(self.weight.grad, grad)
+                self.weight.grad = p.grad.reshape(-1, self.out_channels).T.dot(
+                    (patches.reshape(-1, self.kernel_size ** 2)))
             if self.bias.requires_grad:
-                grad = np.sum(p.grad.reshape(-1, self.out_channels), axis=0)
-                self.bias.grad = merge_grad(self.bias.grad, grad)
+                self.bias.grad = np.sum(p.grad.reshape(-1, self.out_channels), axis=0)
 
         p.backward_fn = backward_fn
         p.parents = {self.weight, self.bias}
@@ -155,9 +147,8 @@ class Pool2D(Layer):
 
         def backward_fn():
             if x.requires_grad:
-                grad = np.zeros_like(x.data)
-                grad[masks] = p.grad.repeat(self.kernel_size, axis=2).repeat(self.kernel_size, axis=3)[masks]
-                x.grad = merge_grad(x.grad, grad)
+                x.grad = np.zeros_like(x.data)
+                x.grad[masks] = p.grad.repeat(self.kernel_size, axis=2).repeat(self.kernel_size, axis=3)[masks]
 
         p.backward_fn = backward_fn
         p.parents = {x}
@@ -171,8 +162,7 @@ class Flatten(Layer):
 
         def backward_fn():
             if x.requires_grad:
-                grad = p.grad.reshape(x.data.shape)
-                x.grad = merge_grad(x.grad, grad)
+                x.grad = p.grad.reshape(x.data.shape)
 
         p.backward_fn = backward_fn
         p.parents = {x}
@@ -194,8 +184,7 @@ class Dropout(Layer):
 
         def backward_fn():
             if x.requires_grad:
-                grad = p.grad * mask
-                x.grad = merge_grad(x.grad, grad)
+                x.grad = p.grad * mask
 
         p.backward_fn = backward_fn
         p.parents = {x}
@@ -224,8 +213,7 @@ class ReLU(Layer):
 
         def backward_fn():
             if x.requires_grad:
-                grad = (p.data > 0) * p.grad
-                x.grad = merge_grad(x.grad, grad)
+                x.grad = (p.data > 0) * p.grad
 
         p.backward_fn = backward_fn
         p.parents = {x}
@@ -239,8 +227,7 @@ class Tanh(Layer):
 
         def backward_fn():
             if x.requires_grad:
-                grad = p.grad * (1 - p.data ** 2)
-                x.grad = merge_grad(x.grad, grad)
+                x.grad = p.grad * (1 - p.data ** 2)
 
         p.backward_fn = backward_fn
         p.parents = {x}
@@ -259,8 +246,7 @@ class Sigmoid(Layer):
 
         def backward_fn():
             if x.requires_grad:
-                grad = p.grad * p.data * (1 - p.data)
-                x.grad = merge_grad(x.grad, grad)
+                x.grad = p.grad * p.data * (1 - p.data)
 
         p.backward_fn = backward_fn
         p.parents = {x}
@@ -279,11 +265,10 @@ class Softmax(Layer):
 
         def backward_fn():
             if x.requires_grad:
-                grad = np.zeros_like(x.data)
+                x.grad = np.zeros_like(x.data)
                 for idx in range(x.data.shape[0]):
                     itm = p.data[idx].reshape(-1, 1)
-                    grad[idx] = (np.diagflat(itm) - itm.dot(itm.T)).dot(p.grad[idx])
-                x.grad = merge_grad(x.grad, grad)
+                    x.grad[idx] = (np.diagflat(itm) - itm.dot(itm.T)).dot(p.grad[idx])
 
         p.backward_fn = backward_fn
         p.parents = {x}
@@ -304,22 +289,19 @@ class MSELoss:
         return mse
 
 
-class CELoss:
+class BCELoss:
 
-    def __call__(self, p: Tensor, y: Tensor, axis=1):
-        exp = np.exp(p.data - np.max(p.data, axis=axis, keepdims=True))
-        softmax = exp / np.sum(exp, axis=axis, keepdims=True)
-
-        log = np.log(softmax + 1e-10)
-        ce = Tensor(0 - np.sum(y.data * log) / len(p.data))
+    def __call__(self, p: Tensor, y: Tensor):
+        clipped = np.clip(p.data, 1e-7, 1 - 1e-7)
+        bce = Tensor(-np.mean(y.data * np.log(clipped) + (1 - y.data) * np.log(1 - clipped)))
 
         def backward_fn():
             if p.requires_grad:
-                p.grad = (softmax - y.data) / len(p.data)
+                p.grad = (clipped - y.data) / (clipped * (1 - clipped) * len(p.data))
 
-        ce.backward_fn = backward_fn
-        ce.parents = {p}
-        return ce
+        bce.backward_fn = backward_fn
+        bce.parents = {p}
+        return bce
 
 
 class SGD:
@@ -349,6 +331,7 @@ class Dataset:
                 x, y = f['x_test'][:size], f['y_test'][:size]
             else:
                 x, y = f['x_train'][:size], f['y_train'][:size]
+
         self.features, self.labels = self.normalize(x, y)
 
     @staticmethod
@@ -385,7 +368,7 @@ class Dataset:
 
 np.random.seed(99)
 
-LEARNING_RATE = 0.03
+LEARNING_RATE = 0.005
 EPOCHES = 10
 BATCHES, CHANNELS, KERNELS, POOLS = (2, 16, 3, 2)
 
@@ -400,7 +383,7 @@ hidden = Linear((convolved_row // POOLS) * (convolved_column // POOLS) * CHANNEL
 output = Linear(64, dataset.label_size())
 model = Sequential([kernel, pool, Flatten(), Dropout(), hidden, Tanh(), output, Softmax()])
 
-loss = CELoss()
+loss = BCELoss()
 optimizer = SGD(model.parameters(), lr=LEARNING_RATE)
 
 for epoch in range(EPOCHES):
