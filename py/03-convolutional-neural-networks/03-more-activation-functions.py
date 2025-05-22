@@ -214,7 +214,7 @@ class MSELoss:
 
 class SGD:
 
-    def __init__(self, params, lr):
+    def __init__(self, params, lr=0.01):
         self.parameters = params
         self.lr = lr
 

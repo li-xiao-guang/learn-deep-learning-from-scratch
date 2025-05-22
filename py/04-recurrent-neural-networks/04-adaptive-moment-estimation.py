@@ -371,7 +371,7 @@ class CELoss:
 
 class SGD:
 
-    def __init__(self, params, lr):
+    def __init__(self, params, lr=0.01):
         self.parameters = params
         self.lr = lr
 
@@ -417,7 +417,7 @@ class Adam:
                 self.v[idx] = self.beta2 * self.v[idx] + (1 - self.beta2) * (grad ** 2)
                 m_hat = self.m[idx] / (1 - self.beta1 ** self.t)
                 v_hat = self.v[idx] / (1 - self.beta2 ** self.t)
-                p.data -= self.lr * m_hat / (np.sqrt(v_hat) + self.eps)
+                p.data -= m_hat / (np.sqrt(v_hat) + self.eps) * self.lr
 
 
 class Dataset:
