@@ -27,6 +27,47 @@ class Tensor:
             if p.requires_grad:
                 p.backward()
 
+    def __add__(self, other):
+        p = Tensor(self.data + other.data)
+
+        def backward_fn():
+            if self.requires_grad:
+                self.grad = p.grad
+            if other.requires_grad:
+                other.grad = p.grad
+
+        p.backward_fn = backward_fn
+        p.parents = {self, other}
+        return p
+
+    def __mul__(self, other):
+        p = Tensor(self.data * other.data)
+
+        def backward_fn():
+            if self.requires_grad:
+                self.grad = p.grad * other.data
+            if other.requires_grad:
+                other.grad = p.grad * self.data
+
+        p.backward_fn = backward_fn
+        p.parents = {self, other}
+        return p
+
+    def concat(self, other, axis=2):
+        p = Tensor(np.concatenate([self.data, other.data], axis=axis))
+
+        def backward_fn():
+            self_grad, other_grad = np.split(p.grad, [self.data.shape[axis]], axis=axis)
+
+            if self.requires_grad:
+                self.grad = self_grad
+            if other.requires_grad:
+                other.grad = other_grad
+
+        p.backward_fn = backward_fn
+        p.parents = {self, other}
+        return p
+
 
 class Layer(ABC):
 
@@ -139,6 +180,79 @@ class Sequential(Layer):
         return [p for l in self.layers for p in l.parameters()]
 
 
+class RNN(Layer):
+
+    def __init__(self, vocabulary_size, embedding_size):
+        super().__init__()
+        self.vocabulary_size = vocabulary_size
+        self.embedding_size = embedding_size
+
+        self.embedding = Embedding(vocabulary_size, embedding_size)
+        self.hidden = Linear(embedding_size, embedding_size)
+        self.hidden2 = Linear(embedding_size * 2, embedding_size)
+        self.tanh = Tanh()
+        self.output = Linear(embedding_size, vocabulary_size)
+
+    def __call__(self, x: Tensor, h: Tensor):
+        return self.forward(x, h)
+
+    def forward(self, x: Tensor, h: Tensor):
+        if not h:
+            h = Tensor(np.zeros((1, 1, self.embedding_size)))
+
+        embedding_feature = self.hidden(self.embedding(x))
+        concat_feature = self.tanh(embedding_feature.concat(h))
+        hidden_feature = self.tanh(self.hidden2(concat_feature))
+        return self.output(hidden_feature), hidden_feature
+
+    def parameters(self):
+        return (self.embedding.parameters() + self.hidden.parameters()
+                + self.hidden2.parameters() + self.output.parameters())
+
+
+class LSTM(Layer):
+
+    def __init__(self, vocabulary_size, embedding_size):
+        super().__init__()
+        self.vocabulary_size = vocabulary_size
+        self.embedding_size = embedding_size
+
+        self.embedding = Embedding(vocabulary_size, embedding_size)
+        self.forget_gate = Linear(embedding_size * 2, embedding_size)
+        self.input_gate = Linear(embedding_size * 2, embedding_size)
+        self.output_gate = Linear(embedding_size * 2, embedding_size)
+        self.cell_update = Linear(embedding_size * 2, embedding_size)
+        self.sigmoid = Sigmoid()
+        self.tanh = Tanh()
+        self.output = Linear(embedding_size, vocabulary_size)
+
+    def __call__(self, x: Tensor, c: Tensor, h: Tensor):
+        return self.forward(x, c, h)
+
+    def forward(self, x: Tensor, c: Tensor, h: Tensor):
+        if not c:
+            c = Tensor(np.zeros((1, 1, self.embedding_size)))
+        if not h:
+            h = Tensor(np.zeros((1, 1, self.embedding_size)))
+
+        embedded_feature = self.embedding(x)
+
+        embedding_feature = embedded_feature.concat(h, axis=2)
+        forget_hidden = self.sigmoid(self.forget_gate(embedding_feature))
+        input_hidden = self.sigmoid(self.input_gate(embedding_feature))
+        output_hidden = self.sigmoid(self.output_gate(embedding_feature))
+        cell_hidden = self.tanh(self.cell_update(embedding_feature))
+        cell_feature = forget_hidden * c + input_hidden * cell_hidden
+        hidden_feature = output_hidden * self.tanh(cell_feature)
+
+        return self.output(hidden_feature), Tensor(cell_feature.data), Tensor(hidden_feature.data)
+
+    def parameters(self):
+        return (self.embedding.parameters() + self.forget_gate.parameters()
+                + self.input_gate.parameters() + self.output_gate.parameters()
+                + self.cell_update.parameters() + self.output.parameters())
+
+
 class ReLU(Layer):
 
     def forward(self, x: Tensor):
@@ -237,6 +351,24 @@ class BCELoss:
         return bce
 
 
+class CELoss:
+
+    def __call__(self, p: Tensor, y: Tensor):
+        exp = np.exp(p.data - np.max(p.data, axis=-1, keepdims=True))
+        softmax = exp / np.sum(exp, axis=-1, keepdims=True)
+
+        log = np.log(softmax + 1e-10)
+        ce = Tensor(0 - np.sum(y.data * log) / len(p.data))
+
+        def backward_fn():
+            if p.requires_grad:
+                p.grad = (softmax - y.data) / len(p.data)
+
+        ce.backward_fn = backward_fn
+        ce.parents = {p}
+        return ce
+
+
 class SGD:
 
     def __init__(self, params, lr):
@@ -252,6 +384,40 @@ class SGD:
         for p in self.parameters:
             if p is not None and p.grad is not None:
                 p.data -= p.grad.reshape(p.data.shape) * self.lr
+
+
+class Adam:
+
+    def __init__(self, params, lr=0.01, betas=(0.9, 0.999), eps=1e-8):
+        self.parameters = params
+        self.lr = lr
+        self.beta1, self.beta2 = betas
+        self.eps = eps
+
+        self.m = [None for _ in range(len(params))]
+        self.v = [None for _ in range(len(params))]
+        self.t = 0
+
+    def zero_grad(self):
+        for p in self.parameters:
+            if p is not None and p.grad is not None:
+                p.grad = None
+
+    def step(self):
+        self.t += 1
+        for idx, p in enumerate(self.parameters):
+            if p is not None and p.grad is not None:
+                grad = p.grad.reshape(p.data.shape)
+
+                if self.m[idx] is None:
+                    self.m[idx] = np.zeros_like(p.data)
+                    self.v[idx] = np.zeros_like(p.data)
+
+                self.m[idx] = self.beta1 * self.m[idx] + (1 - self.beta1) * grad
+                self.v[idx] = self.beta2 * self.v[idx] + (1 - self.beta2) * (grad ** 2)
+                m_hat = self.m[idx] / (1 - self.beta1 ** self.t)
+                v_hat = self.v[idx] / (1 - self.beta2 ** self.t)
+                p.data -= self.lr * m_hat / (np.sqrt(v_hat) + self.eps)
 
 
 class Dataset:
@@ -279,17 +445,24 @@ class Dataset:
         self.tokens = [[self.word2index[w] for w in r if w in self.word2index] for r in split_reviews]
 
         if test:
-            self.features = [list(set(i)) for i in self.tokens[size:]]
-            self.labels = [0 if i == "negative" else 1 for i in self.sentiments[size:]]
+            self.features = [list(set(idx)) for idx in self.tokens[size:]]
+            self.labels = [0 if idx == "negative" else 1 for idx in self.sentiments[size:]]
+            self.sequences = self.tokens[size:]
         else:
-            self.features = [list(set(i)) for i in self.tokens[:size]]
-            self.labels = [0 if i == "negative" else 1 for i in self.sentiments[:size]]
+            self.features = [list(set(idx)) for idx in self.tokens[:size]]
+            self.labels = [0 if idx == "negative" else 1 for idx in self.sentiments[:size]]
+            self.sequences = self.tokens[:size]
 
     @staticmethod
     def clean_text(text):
         txt = re.sub(r'<[^>]+>', '', text)
         txt = re.sub(r'[^a-zA-Z0-9\s]', '', txt)
         return txt
+
+    def embedding(self, index):
+        ebd = np.zeros(len(self.vocabulary))
+        ebd[index] = 1
+        return ebd
 
     def count(self):
         return len(self.features)
@@ -303,51 +476,57 @@ class Dataset:
 
 np.random.seed(99)
 
-LEARNING_RATE = 0.1
-EPOCHS = 10
+LEARNING_RATE = 0.01
+EPOCHS = 100
 
 # training
 dataset = Dataset()
 
-embedding = Embedding(len(dataset.vocabulary), 64)
-hidden = Linear(64, 16)
-output = Linear(16, 1)
-model = Sequential([embedding, Merge(), Tanh(), hidden, Tanh(), output, Sigmoid()])
+model = LSTM(len(dataset.vocabulary), 64)
 
-loss = BCELoss()
-optimizer = SGD(model.parameters(), lr=LEARNING_RATE)
+loss = CELoss()
+optimizer = Adam(model.parameters(), lr=LEARNING_RATE)
 
 for epoch in range(EPOCHS):
     print(f"Epoch: {epoch}")
 
-    for i in range(dataset.count()):
-        feature = dataset.feature(i)
-        label = dataset.label(i)
+    for sequence in dataset.sequences:
+        cell = None
+        hidden = None
+        for i in range(len(sequence) - 1):
+            feature = Tensor([sequence[i:i + 1]])
+            label = Tensor([dataset.embedding(sequence[i + 1: i + 2])])
 
-        prediction = model(feature)
-        error = loss(prediction, label)
+            prediction, cell, hidden = model(feature, cell, hidden)
+            error = loss(prediction, label)
 
-        optimizer.zero_grad()
-        error.backward()
-        optimizer.step()
+            optimizer.zero_grad()
+            error.backward()
+            optimizer.step()
 
     print(f'Prediction: {prediction.data}')
     print(f'Error: {error.data.item()}')
-    print(f"New weight: {output.weight.data}")
-    print(f"New bias: {output.bias.data}")
-    print(f"New hidden weight: {hidden.weight.data}")
-    print(f"New hidden bias: {hidden.bias.data}")
+    print(f"New weight: {model.output.weight.data}")
+    # print(f"New bias: {model.output.bias.data}")
+    # print(f"New hidden weight: {model.hidden.weight.data}")
+    # print(f"New hidden bias: {model.hidden.bias.data}")
 
 # evaluation
 dataset = Dataset(True, -10)
 
 result = 0
-for i in range(dataset.count()):
-    feature = dataset.feature(i)
-    label = dataset.label(i)
+for sequence in dataset.sequences:
+    original = [dataset.index2word[sequence[0]]]
+    generated = [dataset.index2word[sequence[0]]]
+    cell = None
+    hidden = None
+    for i in range(len(sequence) - 1):
+        feature = Tensor([sequence[i:i + 1]])
 
-    prediction = model(feature)
-    if np.abs(prediction.data - label.data) < 0.5:
-        result += 1
+        prediction, cell, hidden = model(feature, cell, hidden)
 
-print(f'Result: {result} of {dataset.count()}')
+        original.append(dataset.index2word[sequence[i + 1]])
+        generated.append(dataset.index2word[prediction.data.argmax()])
+
+    print(f'Original: {' '.join(original)}')
+    print(f'Generated: {' '.join(generated)}')

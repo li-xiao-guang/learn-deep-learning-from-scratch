@@ -3,6 +3,10 @@ from abc import ABC, abstractmethod
 import numpy as np
 
 
+def merge_grad(old, new):
+    return new if old is None else (old + new)
+
+
 class Tensor:
 
     def __init__(self, data, requires_grad=True):
@@ -12,17 +16,13 @@ class Tensor:
         self.backward_fn = lambda: None
         self.parents = set()
 
-    def backward(self, grad=None):
-        if grad is None:
-            grad = np.ones_like(self.data)
-        self.grad = grad
-
+    def backward(self):
         if self.backward_fn:
             self.backward_fn()
 
         for p in self.parents:
             if p.requires_grad:
-                p.backward(p.grad)
+                p.backward()
 
 
 class Layer(ABC):
@@ -53,6 +53,7 @@ class Linear(Layer):
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
+
         self.weight = Tensor(np.random.rand(out_features, in_features) / in_features)
         self.bias = Tensor(np.zeros(out_features))
 
@@ -61,9 +62,11 @@ class Linear(Layer):
 
         def backward_fn():
             if self.weight.requires_grad:
-                self.weight.grad = p.grad.T.dot(x.data)
+                grad = p.grad.T.dot(x.data)
+                self.weight.grad = merge_grad(self.weight.grad, grad)
             if self.bias.requires_grad:
-                self.bias.grad = np.sum(p.grad, axis=0)
+                grad = np.sum(p.grad, axis=0)
+                self.bias.grad = merge_grad(self.bias.grad, grad)
             if x.requires_grad:
                 x.grad = p.grad.dot(self.weight.data)
 

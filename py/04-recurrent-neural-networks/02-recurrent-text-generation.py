@@ -27,6 +27,21 @@ class Tensor:
             if p.requires_grad:
                 p.backward()
 
+    def concat(self, other, axis=2):
+        p = Tensor(np.concatenate([self.data, other.data], axis=axis))
+
+        def backward_fn():
+            self_grad, other_grad = np.split(p.grad, [self.data.shape[axis]], axis=axis)
+
+            if self.requires_grad:
+                self.grad = self_grad
+            if other.requires_grad:
+                other.grad = other_grad
+
+        p.backward_fn = backward_fn
+        p.parents = {self, other}
+        return p
+
 
 class Layer(ABC):
 
@@ -139,6 +154,36 @@ class Sequential(Layer):
         return [p for l in self.layers for p in l.parameters()]
 
 
+class RNN(Layer):
+
+    def __init__(self, vocabulary_size, embedding_size):
+        super().__init__()
+        self.vocabulary_size = vocabulary_size
+        self.embedding_size = embedding_size
+
+        self.embedding = Embedding(vocabulary_size, embedding_size)
+        self.hidden = Linear(embedding_size, embedding_size)
+        self.hidden2 = Linear(embedding_size * 2, embedding_size)
+        self.tanh = Tanh()
+        self.output = Linear(embedding_size, vocabulary_size)
+
+    def __call__(self, x: Tensor, h: Tensor):
+        return self.forward(x, h)
+
+    def forward(self, x: Tensor, h: Tensor):
+        if not h:
+            h = Tensor(np.zeros((1, 1, self.embedding_size)))
+
+        embedding_feature = self.hidden(self.embedding(x))
+        concat_feature = self.tanh(embedding_feature.concat(h))
+        hidden_feature = self.tanh(self.hidden2(concat_feature))
+        return self.output(hidden_feature), Tensor(hidden_feature.data)
+
+    def parameters(self):
+        return (self.embedding.parameters() + self.hidden.parameters()
+                + self.hidden2.parameters() + self.output.parameters())
+
+
 class ReLU(Layer):
 
     def forward(self, x: Tensor):
@@ -237,6 +282,24 @@ class BCELoss:
         return bce
 
 
+class CELoss:
+
+    def __call__(self, p: Tensor, y: Tensor):
+        exp = np.exp(p.data - np.max(p.data, axis=-1, keepdims=True))
+        softmax = exp / np.sum(exp, axis=-1, keepdims=True)
+
+        log = np.log(softmax + 1e-10)
+        ce = Tensor(0 - np.sum(y.data * log) / len(p.data))
+
+        def backward_fn():
+            if p.requires_grad:
+                p.grad = (softmax - y.data) / len(p.data)
+
+        ce.backward_fn = backward_fn
+        ce.parents = {p}
+        return ce
+
+
 class SGD:
 
     def __init__(self, params, lr):
@@ -279,17 +342,24 @@ class Dataset:
         self.tokens = [[self.word2index[w] for w in r if w in self.word2index] for r in split_reviews]
 
         if test:
-            self.features = [list(set(i)) for i in self.tokens[size:]]
-            self.labels = [0 if i == "negative" else 1 for i in self.sentiments[size:]]
+            self.features = [list(set(idx)) for idx in self.tokens[size:]]
+            self.labels = [0 if idx == "negative" else 1 for idx in self.sentiments[size:]]
+            self.sequences = self.tokens[size:]
         else:
-            self.features = [list(set(i)) for i in self.tokens[:size]]
-            self.labels = [0 if i == "negative" else 1 for i in self.sentiments[:size]]
+            self.features = [list(set(idx)) for idx in self.tokens[:size]]
+            self.labels = [0 if idx == "negative" else 1 for idx in self.sentiments[:size]]
+            self.sequences = self.tokens[:size]
 
     @staticmethod
     def clean_text(text):
         txt = re.sub(r'<[^>]+>', '', text)
         txt = re.sub(r'[^a-zA-Z0-9\s]', '', txt)
         return txt
+
+    def embedding(self, index):
+        ebd = np.zeros(len(self.vocabulary))
+        ebd[index] = 1
+        return ebd
 
     def count(self):
         return len(self.features)
@@ -303,51 +373,55 @@ class Dataset:
 
 np.random.seed(99)
 
-LEARNING_RATE = 0.1
-EPOCHS = 10
+LEARNING_RATE = 0.01
+EPOCHS = 100
 
 # training
 dataset = Dataset()
 
-embedding = Embedding(len(dataset.vocabulary), 64)
-hidden = Linear(64, 16)
-output = Linear(16, 1)
-model = Sequential([embedding, Merge(), Tanh(), hidden, Tanh(), output, Sigmoid()])
+model = RNN(len(dataset.vocabulary), 64)
 
-loss = BCELoss()
+loss = CELoss()
 optimizer = SGD(model.parameters(), lr=LEARNING_RATE)
 
 for epoch in range(EPOCHS):
     print(f"Epoch: {epoch}")
 
-    for i in range(dataset.count()):
-        feature = dataset.feature(i)
-        label = dataset.label(i)
+    for sequence in dataset.sequences:
+        hidden = None
+        for i in range(len(sequence) - 1):
+            feature = Tensor([sequence[i:i + 1]])
+            label = Tensor([dataset.embedding(sequence[i + 1: i + 2])])
 
-        prediction = model(feature)
-        error = loss(prediction, label)
+            prediction, hidden = model(feature, hidden)
+            error = loss(prediction, label)
 
-        optimizer.zero_grad()
-        error.backward()
-        optimizer.step()
+            optimizer.zero_grad()
+            error.backward()
+            optimizer.step()
 
     print(f'Prediction: {prediction.data}')
     print(f'Error: {error.data.item()}')
-    print(f"New weight: {output.weight.data}")
-    print(f"New bias: {output.bias.data}")
-    print(f"New hidden weight: {hidden.weight.data}")
-    print(f"New hidden bias: {hidden.bias.data}")
+    print(f"New weight: {model.output.weight.data}")
+    # print(f"New bias: {model.output.bias.data}")
+    # print(f"New hidden weight: {model.hidden.weight.data}")
+    # print(f"New hidden bias: {model.hidden.bias.data}")
 
 # evaluation
 dataset = Dataset(True, -10)
 
 result = 0
-for i in range(dataset.count()):
-    feature = dataset.feature(i)
-    label = dataset.label(i)
+for sequence in dataset.sequences:
+    original = [dataset.index2word[sequence[0]]]
+    generated = [dataset.index2word[sequence[0]]]
+    hidden = None
+    for i in range(len(sequence) - 1):
+        feature = Tensor([sequence[i:i + 1]])
 
-    prediction = model(feature)
-    if np.abs(prediction.data - label.data) < 0.5:
-        result += 1
+        prediction, hidden = model(feature, hidden)
 
-print(f'Result: {result} of {dataset.count()}')
+        original.append(dataset.index2word[sequence[i + 1]])
+        generated.append(dataset.index2word[prediction.data.argmax()])
+
+    print(f'Original: {' '.join(original)}')
+    print(f'Generated: {' '.join(generated)}')
