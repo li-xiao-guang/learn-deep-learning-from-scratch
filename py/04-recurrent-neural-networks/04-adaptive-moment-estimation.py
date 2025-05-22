@@ -476,7 +476,7 @@ class Dataset:
 
 np.random.seed(99)
 
-LEARNING_RATE = 0.01
+LEARNING_RATE = 0.02
 EPOCHS = 100
 
 # training

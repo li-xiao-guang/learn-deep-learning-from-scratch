@@ -235,13 +235,12 @@ class LSTM(Layer):
         if not h:
             h = Tensor(np.zeros((1, 1, self.embedding_size)))
 
-        embedded_feature = self.embedding(x)
-
-        embedding_feature = embedded_feature.concat(h, axis=2)
-        forget_hidden = self.sigmoid(self.forget_gate(embedding_feature))
-        input_hidden = self.sigmoid(self.input_gate(embedding_feature))
-        output_hidden = self.sigmoid(self.output_gate(embedding_feature))
-        cell_hidden = self.tanh(self.cell_update(embedding_feature))
+        embedding_feature = self.embedding(x)
+        concat_feature = embedding_feature.concat(h, axis=2)
+        forget_hidden = self.sigmoid(self.forget_gate(concat_feature))
+        input_hidden = self.sigmoid(self.input_gate(concat_feature))
+        output_hidden = self.sigmoid(self.output_gate(concat_feature))
+        cell_hidden = self.tanh(self.cell_update(concat_feature))
         cell_feature = forget_hidden * c + input_hidden * cell_hidden
         hidden_feature = output_hidden * self.tanh(cell_feature)
 
@@ -442,7 +441,7 @@ class Dataset:
 
 np.random.seed(99)
 
-LEARNING_RATE = 0.01
+LEARNING_RATE = 0.02
 EPOCHS = 100
 
 # training

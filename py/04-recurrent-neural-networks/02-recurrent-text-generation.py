@@ -162,8 +162,8 @@ class RNN(Layer):
         self.embedding_size = embedding_size
 
         self.embedding = Embedding(vocabulary_size, embedding_size)
-        self.hidden = Linear(embedding_size, embedding_size)
-        self.hidden2 = Linear(embedding_size * 2, embedding_size)
+        self.hidden = Linear(embedding_size * 2, embedding_size)
+        self.hidden2 = Linear(embedding_size, embedding_size)
         self.tanh = Tanh()
         self.output = Linear(embedding_size, vocabulary_size)
 
@@ -174,9 +174,10 @@ class RNN(Layer):
         if not h:
             h = Tensor(np.zeros((1, 1, self.embedding_size)))
 
-        embedding_feature = self.hidden(self.embedding(x))
-        concat_feature = self.tanh(embedding_feature.concat(h))
+        embedding_feature = self.embedding(x)
+        concat_feature = self.tanh(self.hidden(embedding_feature.concat(h)))
         hidden_feature = self.tanh(self.hidden2(concat_feature))
+
         return self.output(hidden_feature), Tensor(hidden_feature.data)
 
     def parameters(self):
