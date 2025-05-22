@@ -12,10 +12,12 @@ def forward(x, w, b):
     return x.dot(w.T) + b
 
 
+# loss function
 def mse_loss(p, y):
     return ((p - y) ** 2).mean()
 
 
+# backpropagation
 def gradient(p, y):
     return (p - y) * 2 / np.prod(y.shape)
 
