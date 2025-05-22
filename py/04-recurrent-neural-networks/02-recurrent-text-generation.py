@@ -162,10 +162,10 @@ class RNN(Layer):
         self.embedding_size = embedding_size
 
         self.embedding = Embedding(vocabulary_size, embedding_size)
-        self.hidden = Linear(embedding_size * 2, embedding_size)
-        self.hidden2 = Linear(embedding_size, embedding_size)
-        self.tanh = Tanh()
+        self.update = Linear(embedding_size * 2, embedding_size)
+        self.hidden = Linear(embedding_size, embedding_size)
         self.output = Linear(embedding_size, vocabulary_size)
+        self.tanh = Tanh()
 
     def __call__(self, x: Tensor, h: Tensor):
         return self.forward(x, h)
@@ -175,14 +175,15 @@ class RNN(Layer):
             h = Tensor(np.zeros((1, 1, self.embedding_size)))
 
         embedding_feature = self.embedding(x)
-        concat_feature = self.tanh(self.hidden(embedding_feature.concat(h)))
-        hidden_feature = self.tanh(self.hidden2(concat_feature))
+        concat_feature = embedding_feature.concat(h, axis=2)
+        cell_hidden = self.tanh(self.update(concat_feature))
+        hidden_feature = self.tanh(self.hidden(cell_hidden))
 
         return self.output(hidden_feature), Tensor(hidden_feature.data)
 
     def parameters(self):
-        return (self.embedding.parameters() + self.hidden.parameters()
-                + self.hidden2.parameters() + self.output.parameters())
+        return (self.embedding.parameters() + self.update.parameters()
+                + self.hidden.parameters() + self.output.parameters())
 
 
 class ReLU(Layer):
@@ -374,7 +375,7 @@ class Dataset:
 
 np.random.seed(99)
 
-LEARNING_RATE = 0.01
+LEARNING_RATE = 0.02
 EPOCHS = 100
 
 # training

@@ -188,10 +188,10 @@ class RNN(Layer):
         self.embedding_size = embedding_size
 
         self.embedding = Embedding(vocabulary_size, embedding_size)
+        self.update = Linear(embedding_size * 2, embedding_size)
         self.hidden = Linear(embedding_size, embedding_size)
-        self.hidden2 = Linear(embedding_size * 2, embedding_size)
-        self.tanh = Tanh()
         self.output = Linear(embedding_size, vocabulary_size)
+        self.tanh = Tanh()
 
     def __call__(self, x: Tensor, h: Tensor):
         return self.forward(x, h)
@@ -200,10 +200,12 @@ class RNN(Layer):
         if not h:
             h = Tensor(np.zeros((1, 1, self.embedding_size)))
 
-        embedding_feature = self.hidden(self.embedding(x))
-        concat_feature = self.tanh(embedding_feature.concat(h))
-        hidden_feature = self.tanh(self.hidden2(concat_feature))
-        return self.output(hidden_feature), hidden_feature
+        embedding_feature = self.embedding(x)
+        concat_feature = embedding_feature.concat(h, axis=2)
+        cell_hidden = self.tanh(self.update(concat_feature))
+        hidden_feature = self.tanh(self.hidden(cell_hidden))
+
+        return self.output(hidden_feature), Tensor(hidden_feature.data)
 
     def parameters(self):
         return (self.embedding.parameters() + self.hidden.parameters()
@@ -222,9 +224,9 @@ class LSTM(Layer):
         self.input_gate = Linear(embedding_size * 2, embedding_size)
         self.output_gate = Linear(embedding_size * 2, embedding_size)
         self.cell_update = Linear(embedding_size * 2, embedding_size)
+        self.output = Linear(embedding_size, vocabulary_size)
         self.sigmoid = Sigmoid()
         self.tanh = Tanh()
-        self.output = Linear(embedding_size, vocabulary_size)
 
     def __call__(self, x: Tensor, c: Tensor, h: Tensor):
         return self.forward(x, c, h)
