@@ -27,7 +27,7 @@ class Tensor:
             if p.requires_grad:
                 p.backward()
 
-    def concat(self, other, axis=2):
+    def concat(self, other, axis):
         p = Tensor(np.concatenate([self.data, other.data], axis=axis))
 
         def backward_fn():
@@ -98,14 +98,16 @@ class Linear(Layer):
 
 class Embedding(Layer):
 
-    def __init__(self, vocabulary_size, embedding_size):
+    def __init__(self, vocabulary_size, embedding_size, axis=1):
         super().__init__()
         self.vocabulary_size = vocabulary_size
         self.embedding_size = embedding_size
+        self.axis = axis
+
         self.weight = Tensor(np.random.rand(embedding_size, vocabulary_size) / vocabulary_size)
 
     def forward(self, x: Tensor):
-        p = Tensor(self.weight.data.T[x.data])
+        p = Tensor(np.sum(self.weight.data.T[x.data], axis=self.axis, keepdims=True))
 
         def backward_fn():
             if self.weight.requires_grad:
@@ -119,24 +121,6 @@ class Embedding(Layer):
 
     def parameters(self):
         return [self.weight]
-
-
-class Merge(Layer):
-
-    def __init__(self, axis=1):
-        super().__init__()
-        self.axis = axis
-
-    def forward(self, x: Tensor):
-        p = Tensor(np.sum(x.data, axis=self.axis))
-
-        def backward_fn():
-            if x.requires_grad:
-                x.grad = np.expand_dims(p.grad, axis=self.axis)
-
-        p.backward_fn = backward_fn
-        p.parents = {x}
-        return p
 
 
 class Sequential(Layer):
@@ -392,6 +376,9 @@ for epoch in range(EPOCHS):
     for sequence in dataset.sequences:
         hidden = None
         for i in range(len(sequence) - 1):
+            # NEXT: Add here the concept of batch, where a batch is several consecutive words in the same line.
+            #       For example: take the first three words and predict the fourth word;
+            #                    then take the second through fourth words and predict the fifth word
             feature = Tensor([sequence[i:i + 1]])
             label = Tensor([dataset.embedding(sequence[i + 1: i + 2])])
 

@@ -83,14 +83,16 @@ class Linear(Layer):
 
 class Embedding(Layer):
 
-    def __init__(self, vocabulary_size, embedding_size):
+    def __init__(self, vocabulary_size, embedding_size, axis=1):
         super().__init__()
         self.vocabulary_size = vocabulary_size
         self.embedding_size = embedding_size
+        self.axis = axis
+
         self.weight = Tensor(np.random.rand(embedding_size, vocabulary_size) / vocabulary_size)
 
     def forward(self, x: Tensor):
-        p = Tensor(self.weight.data.T[x.data])
+        p = Tensor(np.sum(self.weight.data.T[x.data], axis=self.axis, keepdims=True))
 
         def backward_fn():
             if self.weight.requires_grad:
@@ -104,24 +106,6 @@ class Embedding(Layer):
 
     def parameters(self):
         return [self.weight]
-
-
-class Merge(Layer):
-
-    def __init__(self, axis=1):
-        super().__init__()
-        self.axis = axis
-
-    def forward(self, x: Tensor):
-        p = Tensor(np.sum(x.data, axis=self.axis))
-
-        def backward_fn():
-            if x.requires_grad:
-                x.grad = np.expand_dims(p.grad, axis=self.axis)
-
-        p.backward_fn = backward_fn
-        p.parents = {x}
-        return p
 
 
 class Sequential(Layer):
@@ -312,7 +296,7 @@ dataset = Dataset()
 embedding = Embedding(len(dataset.vocabulary), 64)
 hidden = Linear(64, 16)
 output = Linear(16, 1)
-model = Sequential([embedding, Merge(), Tanh(), hidden, Tanh(), output, Sigmoid()])
+model = Sequential([embedding, Tanh(), hidden, Tanh(), output, Sigmoid()])
 
 loss = BCELoss()
 optimizer = SGD(model.parameters(), lr=LEARNING_RATE)
