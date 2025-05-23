@@ -429,6 +429,7 @@ np.random.seed(99)
 
 LEARNING_RATE = 0.02
 EPOCHS = 100
+BATCHES = 2
 
 # training
 dataset = Dataset()
@@ -444,9 +445,9 @@ for epoch in range(EPOCHS):
     for sequence in dataset.sequences:
         cell = None
         hidden = None
-        for i in range(len(sequence) - 1):
-            feature = Tensor([sequence[i:i + 1]])
-            label = Tensor([dataset.embedding(sequence[i + 1: i + 2])])
+        for i in range(len(sequence) - BATCHES):
+            feature = Tensor([sequence[i:i + BATCHES]])
+            label = Tensor([dataset.embedding(sequence[i + BATCHES: i + BATCHES + 1])])
 
             prediction, cell, hidden = model(feature, cell, hidden)
             error = loss(prediction, label)
@@ -457,10 +458,9 @@ for epoch in range(EPOCHS):
 
     print(f'Prediction: {prediction.data}')
     print(f'Error: {error.data.item()}')
-    print(f"New weight: {model.output.weight.data}")
-    # print(f"New bias: {model.output.bias.data}")
-    # print(f"New hidden weight: {model.hidden.weight.data}")
-    # print(f"New hidden bias: {model.hidden.bias.data}")
+    print(f"New embedding weight: {model.embedding.weight.data}")
+    print(f"New output weight: {model.output.weight.data}")
+    print(f"New output bias: {model.output.bias.data}")
 
 # evaluation
 dataset = Dataset(True, -10)
@@ -471,12 +471,12 @@ for sequence in dataset.sequences:
     generated = [dataset.index2word[sequence[0]]]
     cell = None
     hidden = None
-    for i in range(len(sequence) - 1):
-        feature = Tensor([sequence[i:i + 1]])
+    for i in range(len(sequence) - BATCHES):
+        feature = Tensor([sequence[i:i + BATCHES]])
 
         prediction, cell, hidden = model(feature, cell, hidden)
 
-        original.append(dataset.index2word[sequence[i + 1]])
+        original.append(dataset.index2word[sequence[i + BATCHES]])
         generated.append(dataset.index2word[prediction.data.argmax()])
 
     print(f'Original: {' '.join(original)}')
