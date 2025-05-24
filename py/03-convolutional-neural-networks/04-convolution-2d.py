@@ -174,6 +174,14 @@ class Sequential(Layer):
     def parameters(self):
         return [p for l in self.layers for p in l.parameters()]
 
+    def train(self):
+        for l in self.layers:
+            l.train()
+
+    def eval(self):
+        for l in self.layers:
+            l.eval()
+
 
 class ReLU(Layer):
 
