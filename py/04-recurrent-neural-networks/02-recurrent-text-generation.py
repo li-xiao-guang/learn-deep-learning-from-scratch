@@ -146,38 +146,6 @@ class Sequential(Layer):
             l.eval()
 
 
-class RNN(Layer):
-
-    def __init__(self, vocabulary_size, embedding_size):
-        super().__init__()
-        self.vocabulary_size = vocabulary_size
-        self.embedding_size = embedding_size
-
-        self.embedding = Embedding(vocabulary_size, embedding_size)
-        self.update = Linear(embedding_size * 2, embedding_size)
-        self.hidden = Linear(embedding_size, embedding_size)
-        self.output = Linear(embedding_size, vocabulary_size)
-        self.tanh = Tanh()
-
-    def __call__(self, x: Tensor, h: Tensor):
-        return self.forward(x, h)
-
-    def forward(self, x: Tensor, h: Tensor):
-        if not h:
-            h = Tensor(np.zeros((1, 1, self.embedding_size)))
-
-        embedding_feature = self.embedding(x)
-        concat_feature = embedding_feature.concat(h, axis=2)
-        cell_hidden = self.tanh(self.update(concat_feature))
-        hidden_feature = self.tanh(self.hidden(cell_hidden))
-
-        return self.output(hidden_feature), Tensor(hidden_feature.data)
-
-    def parameters(self):
-        return (self.embedding.parameters() + self.update.parameters()
-                + self.hidden.parameters() + self.output.parameters())
-
-
 class ReLU(Layer):
 
     def forward(self, x: Tensor):
@@ -309,6 +277,38 @@ class SGD:
         for p in self.parameters:
             if p is not None and p.grad is not None:
                 p.data -= p.grad.reshape(p.data.shape) * self.lr
+
+
+class RNN:
+
+    def __init__(self, vocabulary_size, embedding_size):
+        super().__init__()
+        self.vocabulary_size = vocabulary_size
+        self.embedding_size = embedding_size
+
+        self.embedding = Embedding(vocabulary_size, embedding_size)
+        self.update = Linear(embedding_size * 2, embedding_size)
+        self.hidden = Linear(embedding_size, embedding_size)
+        self.output = Linear(embedding_size, vocabulary_size)
+        self.tanh = Tanh()
+
+    def __call__(self, x: Tensor, h: Tensor):
+        return self.forward(x, h)
+
+    def forward(self, x: Tensor, h: Tensor):
+        if not h:
+            h = Tensor(np.zeros((1, 1, self.embedding_size)))
+
+        embedding_feature = self.embedding(x)
+        concat_feature = embedding_feature.concat(h, axis=2)
+        cell_hidden = self.tanh(self.update(concat_feature))
+        hidden_feature = self.tanh(self.hidden(cell_hidden))
+
+        return self.output(hidden_feature), Tensor(hidden_feature.data)
+
+    def parameters(self):
+        return (self.embedding.parameters() + self.update.parameters()
+                + self.hidden.parameters() + self.output.parameters())
 
 
 class Dataset:
